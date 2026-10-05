@@ -89,6 +89,8 @@ end
 ```
 
 View-rendering keys (`template`, `layout`, `locals`, …) go to `render_to_string`, response keys (`filename`, `disposition`, `status`) go to `send_data`, `show_as_html: true` returns the HTML instead of a PDF, and everything else is passed to the converter.
+
+`render_to_string(pdf: "invoice", template: "invoices/show")` returns PDF bytes without setting the controller response. You can then pass those bytes to `send_data` or save them elsewhere; response options such as `filename`, `disposition`, and `status` only apply to `render pdf:`.
 Converter keys are flat CLI flag names, so wicked_pdf's nested `margin: {top: 10}` becomes `margin_top: "10mm"` (with the unit spelled out); the [migration guide](https://waka.github.io/sghtmltopdf/en/migration/wicked-pdf.html) maps every key one by one.
 
 ### Assets

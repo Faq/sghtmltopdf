@@ -525,8 +525,10 @@ msgstr ""
 #: src/getting-started/install.md:56
 msgid ""
 "ビルド済み(precompiled)のgemを配布する方針のため、利用側にRustのツールチェインは要りません。 "
-"対応は`x86_64-linux`・`aarch64-linux`(glibc)・`arm64-darwin`・`x86_64-darwin`と、Ruby "
-"3.2以上です。"
+"対応は`x86_64-linux`・`aarch64-linux`(glibc)・`x86_64-linux-musl`・"
+"`aarch64-linux-musl`(Alpine)・`arm64-darwin`・`x86_64-darwin`・Windows "
+"`x64-mingw-ucrt`と、Ruby 3.2以上です。ビルド済みgemにはRuby "
+"3.2・3.3・3.4・4.0の拡張を同梱しています。Windowsでは64-bitのRubyInstaller UCRTを使用してください。"
 msgstr ""
 
 #: src/getting-started/install.md:59
@@ -2514,7 +2516,7 @@ msgstr ""
 #: src/usage/ruby_rails.md:23
 msgid ""
 "`x86_64-linux` / `aarch64-linux` / `x86_64-linux-musl` / "
-"`aarch64-linux-musl` / `arm64-darwin` / `x86_64-darwin`"
+"`aarch64-linux-musl` / `arm64-darwin` / `x86_64-darwin` / `x64-mingw-ucrt`"
 msgstr ""
 
 #: src/usage/ruby_rails.md:24
@@ -2522,13 +2524,13 @@ msgid "Ruby"
 msgstr ""
 
 #: src/usage/ruby_rails.md:24
-msgid "3.2以上"
+msgid "3.2以上（ビルド済みgemは3.2・3.3・3.4・4.0）"
 msgstr ""
 
 #: src/usage/ruby_rails.md:26
 msgid ""
 "Linuxはglibc(Debian/Ubuntu系)とmusl(Alpine)の両方があり、`gem install`が環境に合うほうを選びます。 "
-"Windowsは対象外で、この環境ではインストールできません。 [サーバへ委譲する](#サーバへ委譲する)という手があります。"
+"Windowsでは64-bitのRubyInstaller UCRTで`x64-mingw-ucrt`のprecompiled gemを利用できます。"
 msgstr ""
 
 #: src/usage/ruby_rails.md:33
@@ -3059,7 +3061,7 @@ msgstr ""
 #: src/usage/ruby_rails.md:221
 msgid ""
 "`server_url`を指定すると、変換を[HTTPサーバモード](../server/index.md)で動く 別プロセスへ投げます。 "
-"アプリのCPUを使いたくない場合や、gemの対応プラットフォーム外(Windowsなど)で動かす場合に使います。"
+"アプリのCPUを使いたくない場合や、gemの対応プラットフォーム外で動かす場合に使います。"
 msgstr ""
 
 #: src/usage/ruby_rails.md:227 src/migration/wicked-pdf.md:150

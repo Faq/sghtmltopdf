@@ -750,9 +750,10 @@ fn cell_content_width(
 
 /// One child box's natural or min-content outer width (per `basis`): its content width plus its
 /// own padding, border and margins. A definite `width` in px replaces the measured content width
-/// (an empty icon box with `width: 10px` still takes 10px), and `box-sizing: border-box` is
-/// honoured. A percentage resolves against 0, the basis width being unknown at this point
-/// (the same simplification as `natural_cell_width`).
+/// (an empty icon box with `width: 10px` still takes 10px), the result is clamped by a px
+/// `min-width`/`max-width`, and `box-sizing: border-box` is honoured. A percentage `width`,
+/// `min-width` or `max-width` is ignored, the basis width being unknown at this point, and a
+/// percentage padding resolves against 0 (the same simplification as `natural_cell_width`).
 fn outer_content_width(
     child: &LayoutBox,
     styles: &HashMap<NodeId, Rc<ComputedStyle>>,
@@ -763,16 +764,26 @@ fn outer_content_width(
     let padding = resolve_padding(&style, 0.0);
     let border = resolve_border(&style);
     let pb_x = padding.left + padding.right + border.left + border.right;
-    let content = match style.width {
+    let to_content_box = |px: f32| {
+        if style.box_sizing == BoxSizing::BorderBox {
+            (px - pb_x).max(0.0)
+        } else {
+            px
+        }
+    };
+    let mut content = match style.width {
         LengthPercentageOrAuto::LengthPercentage(LengthPercentage::Length(px)) => {
-            if style.box_sizing == BoxSizing::BorderBox {
-                (px - pb_x).max(0.0)
-            } else {
-                px
-            }
+            to_content_box(px)
         }
         _ => measure_content_width(child, styles, fonts, basis),
     };
+    // `max` then `min`, so `min-width` wins, as in `clamp_used_width`.
+    if let MaxSize::LengthPercentage(LengthPercentage::Length(px)) = style.max_width {
+        content = content.min(to_content_box(px));
+    }
+    if let LengthPercentage::Length(px) = style.min_width {
+        content = content.max(to_content_box(px));
+    }
     let margin_x =
         resolve_lpa_or_zero(style.margin_left, 0.0) + resolve_lpa_or_zero(style.margin_right, 0.0);
     content + pb_x + margin_x

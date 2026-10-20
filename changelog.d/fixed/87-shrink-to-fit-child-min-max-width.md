@@ -3,3 +3,5 @@ A float, `inline-block` or flex item with `width: auto` now takes a block-level 
 longer sticks out of its parent, and the parent is no longer wider than the child. A percentage
 `min-width`/`max-width` on the child is still ignored there, since it has nothing to resolve
 against while the parent's width is being found.
+A `calc()` with no percentage in it, such as `max-width: calc(100px - 1em)`, now counts there
+like a plain length, for a block child's and a block image's `width` too.

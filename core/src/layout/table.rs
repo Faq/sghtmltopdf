@@ -21,16 +21,16 @@ use std::rc::Rc;
 use crate::fonts::FontCollection;
 use crate::html::NodeId;
 use crate::style::{
-    BoxSizing, CaptionSide, ComputedStyle, FlexDirection, LengthPercentage, LengthPercentageOrAuto,
-    MaxSize, RepeatCount, TableLayout, TrackComponent, TrackList, VerticalAlign,
+    CaptionSide, ComputedStyle, FlexDirection, LengthPercentage, LengthPercentageOrAuto, MaxSize,
+    RepeatCount, TableLayout, TrackComponent, TrackList, VerticalAlign,
 };
 
 use super::block::resolve_lpa_or_zero;
 use super::block::{
     apply_replaced_element_auto_size, box_style, clamp_used_width, layout_box,
     layout_box_with_forced_width, resolve_border, resolve_lp, resolve_padding, shift_box_y,
-    shift_box_y_in_place, shift_content_vertical, LaidOutBox, LaidOutContent, LaidOutTable,
-    LaidOutTableRow, PosCtx,
+    shift_box_y_in_place, shift_content_vertical, to_content_box_width, LaidOutBox, LaidOutContent,
+    LaidOutTable, LaidOutTableRow, PosCtx,
 };
 use super::box_tree::{BoxContent, ImageBoxContent, LayoutBox, TableBox, TableCell, TableRow};
 use super::float_ctx::FloatContext;
@@ -751,8 +751,9 @@ fn cell_content_width(
 /// One child box's natural or min-content outer width (per `basis`): its content width plus its
 /// own padding, border and margins. A definite `width` in px replaces the measured content width
 /// (an empty icon box with `width: 10px` still takes 10px), the result is clamped by a px
-/// `min-width`/`max-width`, and `box-sizing: border-box` is honoured. A percentage `width`,
-/// `min-width` or `max-width` is ignored, the basis width being unknown at this point, and a
+/// `min-width`/`max-width` (a pure-length `calc()` counts as px), and `box-sizing: border-box`
+/// is honoured. A `width`, `min-width` or `max-width` with a percentage in it is ignored, the
+/// basis width being unknown at this point, and a
 /// percentage padding resolves against 0 (the same simplification as `natural_cell_width`).
 fn outer_content_width(
     child: &LayoutBox,
@@ -764,29 +765,48 @@ fn outer_content_width(
     let padding = resolve_padding(&style, 0.0);
     let border = resolve_border(&style);
     let pb_x = padding.left + padding.right + border.left + border.right;
-    let to_content_box = |px: f32| {
-        if style.box_sizing == BoxSizing::BorderBox {
-            (px - pb_x).max(0.0)
-        } else {
-            px
-        }
+    let content = match definite_lpa_px(style.width) {
+        Some(px) => to_content_box_width(&style, pb_x, px),
+        None => measure_content_width(child, styles, fonts, basis),
     };
-    let mut content = match style.width {
-        LengthPercentageOrAuto::LengthPercentage(LengthPercentage::Length(px)) => {
-            to_content_box(px)
-        }
-        _ => measure_content_width(child, styles, fonts, basis),
-    };
-    // `max` then `min`, so `min-width` wins, as in `clamp_used_width`.
-    if let MaxSize::LengthPercentage(LengthPercentage::Length(px)) = style.max_width {
-        content = content.min(to_content_box(px));
-    }
-    if let LengthPercentage::Length(px) = style.min_width {
-        content = content.max(to_content_box(px));
-    }
+    let content = clamp_by_definite_px(content, &style, pb_x);
     let margin_x =
         resolve_lpa_or_zero(style.margin_left, 0.0) + resolve_lpa_or_zero(style.margin_right, 0.0);
     content + pb_x + margin_x
+}
+
+/// Clamp a content width by `max-width` then `min-width` (so `min-width` wins, as in
+/// `clamp_used_width`) while measuring. Only [`definite_px`] values count: a percentage has no
+/// basis yet.
+fn clamp_by_definite_px(content: f32, style: &ComputedStyle, pb_x: f32) -> f32 {
+    let mut content = content;
+    if let MaxSize::LengthPercentage(lp) = style.max_width {
+        if let Some(px) = definite_px(lp) {
+            content = content.min(to_content_box_width(style, pb_x, px));
+        }
+    }
+    if let Some(px) = definite_px(style.min_width) {
+        content = content.max(to_content_box_width(style, pb_x, px));
+    }
+    content
+}
+
+/// The px value of a length that needs no percentage basis: a plain length, or a `calc()` with
+/// no percentage in it (`calc(100px - 1em)` resolves to `Calc` all the same).
+fn definite_px(lp: LengthPercentage) -> Option<f32> {
+    match lp {
+        LengthPercentage::Length(px) => Some(px),
+        LengthPercentage::Calc { px, percent: 0.0 } => Some(px),
+        _ => None,
+    }
+}
+
+/// [`definite_px`] for a value that may be `auto`.
+fn definite_lpa_px(lpa: LengthPercentageOrAuto) -> Option<f32> {
+    match lpa {
+        LengthPercentageOrAuto::LengthPercentage(lp) => definite_px(lp),
+        LengthPercentageOrAuto::Auto => None,
+    }
 }
 
 /// The number of tracks `grid-template-columns` declares.
@@ -982,37 +1002,27 @@ fn compute_content_width(
 /// with the callers does not distinguish min-content from max-content (see `layout::flex`).
 fn replaced_natural_content_width(style: &ComputedStyle, image: &ImageBoxContent) -> f32 {
     let mut style = style.clone();
-    let is_definite = |lp: LengthPercentage| matches!(lp, LengthPercentage::Length(_));
-    if let LengthPercentageOrAuto::LengthPercentage(lp) = style.width {
-        if !is_definite(lp) {
-            style.width = LengthPercentageOrAuto::Auto;
-        }
-    }
+    // Definite values (a pure-length `calc()` too) become plain lengths, the rest their initial value.
+    let px = |px: f32| LengthPercentage::Length(px);
+    style.width = definite_lpa_px(style.width).map_or(LengthPercentageOrAuto::Auto, |w| {
+        LengthPercentageOrAuto::LengthPercentage(px(w))
+    });
     if let MaxSize::LengthPercentage(lp) = style.max_width {
-        if !is_definite(lp) {
-            style.max_width = MaxSize::None;
-        }
+        style.max_width =
+            definite_px(lp).map_or(MaxSize::None, |w| MaxSize::LengthPercentage(px(w)));
     }
-    if !is_definite(style.min_width) {
-        style.min_width = LengthPercentage::Length(0.0);
-    }
+    style.min_width = px(definite_px(style.min_width).unwrap_or(0.0));
     apply_replaced_element_auto_size(&mut style, image, 0.0);
     let padding = resolve_padding(&style, 0.0);
     let border = resolve_border(&style);
-    let padding_lr = padding.left + padding.right;
-    let border_lr = border.left + border.right;
+    let pb_x = padding.left + padding.right + border.left + border.right;
     let LengthPercentageOrAuto::LengthPercentage(LengthPercentage::Length(width)) = style.width
     else {
         // A settled `height` with no intrinsic ratio (the decode failed) leaves the width
         // `auto`. The final layout then shrinks to this same measure, so keep the natural width.
         return image.image.as_ref().map_or(0.0, |img| img.width);
     };
-    let width = if style.box_sizing == BoxSizing::BorderBox {
-        (width - padding_lr - border_lr).max(0.0)
-    } else {
-        width
-    };
-    clamp_used_width(&style, 0.0, padding_lr, border_lr, width)
+    clamp_by_definite_px(to_content_box_width(&style, pb_x, width), &style, pb_x)
 }
 
 #[cfg(test)]

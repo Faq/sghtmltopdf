@@ -246,3 +246,63 @@ fn a_block_images_max_width_caps_its_definite_width() {
 fn a_float_shrinks_to_its_inline_images_max_width() {
     assert_width(wrapper_around_image("f", "max-width: 16px"), 16.0);
 }
+
+// A `calc()` with no percentage in it is as definite as a plain length.
+
+#[test]
+fn a_float_shrinks_to_a_childs_pure_length_calc_width() {
+    assert_width(
+        wrapper_around_text("f", "font-size: 10px; width: calc(110px - 1em)"),
+        100.0,
+    );
+}
+
+#[test]
+fn a_float_grows_to_a_childs_pure_length_calc_min_width() {
+    assert_width(
+        wrapper_around_text("f", "font-size: 10px; min-width: calc(110px - 1em)"),
+        100.0,
+    );
+}
+
+#[test]
+fn a_float_shrinks_to_a_childs_pure_length_calc_max_width() {
+    assert_width(
+        wrapper_around_text(
+            "f",
+            "font-size: 10px; width: 100px; max-width: calc(50px - 1em)",
+        ),
+        40.0,
+    );
+}
+
+#[test]
+fn a_calc_with_a_percentage_on_a_child_still_counts_as_none() {
+    let natural = wrapper_around_text("f", "");
+    assert_width(
+        wrapper_around_text("f", "max-width: calc(50% - 1px)"),
+        natural,
+    );
+}
+
+#[test]
+fn a_float_shrinks_to_its_block_images_pure_length_calc_max_width() {
+    assert_width(
+        wrapper_around_image(
+            "f",
+            "display: block; font-size: 10px; max-width: calc(26px - 1em)",
+        ),
+        16.0,
+    );
+}
+
+#[test]
+fn a_float_shrinks_to_its_block_images_pure_length_calc_width() {
+    assert_width(
+        wrapper_around_image(
+            "f",
+            "display: block; font-size: 10px; width: calc(26px - 1em)",
+        ),
+        16.0,
+    );
+}

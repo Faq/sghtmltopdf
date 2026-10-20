@@ -1133,6 +1133,16 @@ pub(crate) fn resolve_lpa_or_zero(lpa: LengthPercentageOrAuto, basis: f32) -> f3
     }
 }
 
+/// A `width`, `min-width` or `max-width` value as a content-box width: under
+/// `box-sizing: border-box` it includes the horizontal padding and border (`pb_x`), taken off here.
+pub(super) fn to_content_box_width(style: &ComputedStyle, pb_x: f32, width: f32) -> f32 {
+    if style.box_sizing == BoxSizing::BorderBox {
+        (width - pb_x).max(0.0)
+    } else {
+        width
+    }
+}
+
 /// Clamping the used width by `min-width`/`max-width`.
 ///
 /// They are applied `max` then `min`, so `min-width` wins when `min-width > max-width`
@@ -1146,13 +1156,7 @@ pub(crate) fn clamp_used_width(
     border_lr: f32,
     width: f32,
 ) -> f32 {
-    let to_content_box = |v: f32| {
-        if style.box_sizing == BoxSizing::BorderBox {
-            (v - padding_lr - border_lr).max(0.0)
-        } else {
-            v
-        }
-    };
+    let to_content_box = |v: f32| to_content_box_width(style, padding_lr + border_lr, v);
 
     let mut used = width;
     if let MaxSize::LengthPercentage(lp) = style.max_width {

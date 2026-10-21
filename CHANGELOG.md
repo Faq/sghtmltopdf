@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- New entries go in changelog.d/ as one file per change, not here (see changelog.d/README.md).
      `cargo xtask changelog release <version>` moves them into this file when releasing. -->
 
+## 0.6.1 - 2026-10-21
+
+### Fixed
+
+- An `<img>` sized by its `width`/`height` attributes keeps its aspect ratio under
+  `max-width`/`max-height` (#86), so `img { max-width: 100%; height: auto }` no longer squashes
+  it. The attributes are now presentational hints, as in browsers: author CSS overrides them,
+  and `width="50%"` means 50% instead of 50px. An image with a set height and `width: auto` also
+  keeps its ratio under `max-height`.
+  An image in a column flex container keeps its ratio under `max-width` too.
+- A float, `inline-block` or flex item with `width: auto` now takes a block-level child's
+  `min-width`/`max-width` into account when it shrinks to fit its content (#87). The child no
+  longer sticks out of its parent, and the parent is no longer wider than the child. A percentage
+  `min-width`/`max-width` on the child is still ignored there, since it has nothing to resolve
+  against while the parent's width is being found.
+  A `calc()` with no percentage in it, such as `max-width: calc(100px - 1em)`, now counts there
+  like a plain length, for a block child's and a block image's `width` too.
+- `render_to_string(pdf: ...)` now returns PDF bytes without setting the controller
+  response, allowing a subsequent `send_data` call without a DoubleRenderError (#122).
+
 ## 0.6.0 - 2026-10-18
 
 ### Added

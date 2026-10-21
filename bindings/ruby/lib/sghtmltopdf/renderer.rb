@@ -18,7 +18,7 @@ module Sghtmltopdf
         normalized_args = args.map { |arg| arg.is_a?(Hash) ? arg.dup : arg }
         options = _normalize_args(*normalized_args, &block)
         renderer = Renderer.new(options.delete(:pdf), options, default_name: action_name)
-        html = render_to_string(**renderer.render_options, &block)
+        html = super(**renderer.render_options, &block)
         renderer.body_for(html)
       end
     end

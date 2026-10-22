@@ -637,16 +637,20 @@ fn collect_headings(
         .collect()
 }
 
-/// Resolve the outline entry of every element in `styles` with a `bookmark-level`: its label
-/// from `bookmark-label` (the element's text, `content()`, by default) with the whitespace
-/// collapsed.
+/// Resolve the outline entry of every element under `root` with a `bookmark-level`: its label
+/// from `bookmark-label` (the element's text, `content()`, by default) with the CSS white
+/// space collapsed. An element whose label comes out empty gets no entry.
 ///
-/// Streaming calls this per top-level element, before its DOM is released.
+/// `display: none` subtrees are skipped, as are `<html>` and `<body>`, which have no box of
+/// their own in streaming mode. Streaming calls this per top-level element, before its DOM is
+/// released.
 fn collect_bookmarks(
     dom: &Dom,
     styles: &HashMap<NodeId, Rc<ComputedStyle>>,
+    root: NodeId,
 ) -> HashMap<NodeId, Bookmark> {
-    /// The text of `node` and its descendants, leaving out what `display: none` hides.
+    /// The text of `node` and its descendants, leaving out what `display: none` hides. A
+    /// `<br>` and the edges of a block-level child are a space, as the lines they break are.
     fn text_of(
         dom: &Dom,
         styles: &HashMap<NodeId, Rc<ComputedStyle>>,
@@ -655,57 +659,91 @@ fn collect_bookmarks(
     ) {
         match &dom.node(node).data {
             NodeData::Text { contents } => out.push_str(contents),
-            NodeData::Element { .. } => {
-                if styles
-                    .get(&node)
-                    .is_some_and(|s| s.display == Display::None)
-                {
+            NodeData::Element { name, .. } => {
+                let display = styles.get(&node).map(|s| s.display);
+                if display == Some(Display::None) {
                     return;
+                }
+                let breaks = &*name.local == "br"
+                    || !matches!(
+                        display,
+                        None | Some(Display::Inline | Display::InlineBlock | Display::InlineFlex)
+                    );
+                if breaks {
+                    out.push(' ');
                 }
                 for child in dom.children(node) {
                     text_of(dom, styles, child, out);
+                }
+                if breaks {
+                    out.push(' ');
                 }
             }
             _ => {}
         }
     }
 
-    let mut bookmarks = HashMap::new();
-    for (&node, style) in styles {
-        let Some(level) = style.bookmark_level else {
-            continue;
-        };
-        if style.display == Display::None {
-            continue;
-        }
-        let mut label = String::new();
-        match &style.bookmark_label {
-            None => text_of(dom, styles, node, &mut label),
-            Some(parts) => {
-                for part in parts {
-                    match part {
-                        BookmarkLabelPart::String(s) => label.push_str(s),
-                        BookmarkLabelPart::Text => text_of(dom, styles, node, &mut label),
-                        BookmarkLabelPart::Attr(name) => {
-                            if let NodeData::Element { attrs, .. } = &dom.node(node).data {
-                                if let Some(attr) = attrs.iter().find(|a| &*a.name.local == name) {
-                                    label.push_str(&attr.value);
+    fn visit(
+        dom: &Dom,
+        styles: &HashMap<NodeId, Rc<ComputedStyle>>,
+        node: NodeId,
+        out: &mut HashMap<NodeId, Bookmark>,
+    ) {
+        if let NodeData::Element { name, attrs, .. } = &dom.node(node).data {
+            let Some(style) = styles.get(&node) else {
+                return;
+            };
+            if style.display == Display::None {
+                return;
+            }
+            if let (Some(level), false) = (
+                style.bookmark_level,
+                matches!(&*name.local, "html" | "body"),
+            ) {
+                let mut label = String::new();
+                match &style.bookmark_label {
+                    None => text_of(dom, styles, node, &mut label),
+                    Some(parts) => {
+                        for part in parts {
+                            match part {
+                                BookmarkLabelPart::String(s) => label.push_str(s),
+                                BookmarkLabelPart::Text => text_of(dom, styles, node, &mut label),
+                                BookmarkLabelPart::Attr(name) => {
+                                    if let Some(attr) =
+                                        attrs.iter().find(|a| &*a.name.local == name)
+                                    {
+                                        label.push_str(&attr.value);
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                // Only CSS white space collapses; a no-break space is part of the label.
+                let title = label
+                    .split([' ', '\t', '\n', '\r', '\x0c'])
+                    .filter(|word| !word.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if !title.is_empty() {
+                    out.insert(
+                        node,
+                        Bookmark {
+                            level,
+                            title,
+                            open: style.bookmark_state == BookmarkState::Open,
+                        },
+                    );
+                }
             }
         }
-        bookmarks.insert(
-            node,
-            Bookmark {
-                level,
-                title: label.split_whitespace().collect::<Vec<_>>().join(" "),
-                open: style.bookmark_state == BookmarkState::Open,
-            },
-        );
+        for child in dom.children(node) {
+            visit(dom, styles, child, out);
+        }
     }
+
+    let mut bookmarks = HashMap::new();
+    visit(dom, styles, root, &mut bookmarks);
     bookmarks
 }
 
@@ -1483,7 +1521,7 @@ impl<S: Sink> Engine<S> {
             // Read here, while the subtree's text and attributes are still in the DOM.
             state
                 .writer
-                .add_bookmarks(collect_bookmarks(&dom, &sub_styles));
+                .add_bookmarks(collect_bookmarks(&dom, &sub_styles, node));
             let mut item_box = build_box_for_element(&dom, &sub_styles, node);
             if let (Some(item_box), true) = (&mut item_box, options_content.load_images) {
                 resolve_images(item_box, &dom, &sub_styles, &state.image_cache);
@@ -1863,7 +1901,7 @@ impl<S: Sink> Engine<S> {
 
         // The cover and the TOC are separate documents whose `NodeId`s would collide with the
         // body's, so the body's bookmarks are registered only after them.
-        writer.add_bookmarks(collect_bookmarks(&dom, &styles));
+        writer.add_bookmarks(collect_bookmarks(&dom, &styles, dom.document()));
 
         let mut overlay_cache = OverlayCache::default();
         for page in pages.iter() {

@@ -71,6 +71,21 @@ pub(super) fn collect_bookmark_positions(
                 collect_bookmark_positions(caption, bookmarks, settings, out);
             }
             for row in &table.rows {
+                // A row (and its row group, at its first row) has no box of its own: it
+                // starts where its cells do.
+                if let Some(first) = row.cells.first() {
+                    let x = settings.margin.left + first.layout.border_box().x;
+                    let top = row
+                        .cells
+                        .iter()
+                        .map(|cell| cell.layout.border_box().y)
+                        .fold(f32::INFINITY, f32::min);
+                    for node in [row.group, row.node].into_iter().flatten() {
+                        if bookmarks.contains_key(&node) {
+                            out.push((node, x, to_pdf_y(settings, top)));
+                        }
+                    }
+                }
                 for cell in &row.cells {
                     collect_bookmark_positions(cell, bookmarks, settings, out);
                 }

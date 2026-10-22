@@ -458,3 +458,99 @@ fn a_cover_page_shifts_the_destinations_without_adding_entries() {
     assert_eq!(titles(&items), ["Body"]);
     assert_eq!(items[0].page, 1);
 }
+
+#[test]
+fn line_breaks_and_block_children_separate_the_words_of_a_label() {
+    let html = "<style>h1, h2 { bookmark-level: 1; }</style>\
+                <h1>Chapter 1<br>Introduction</h1>\
+                <h2><div>First</div><p>Second</p>third</h2>\
+                <h1><b>Foo</b>bar <i>baz</i></h1>";
+    for mode in [Mode::Batch, Mode::Streaming] {
+        let items = outline(html, mode).unwrap();
+        assert_eq!(
+            titles(&items),
+            ["Chapter 1 Introduction", "First Second third", "Foobar baz"],
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
+fn a_label_keeps_no_break_spaces() {
+    let html = "<style>h1 { bookmark-level: 1; }</style><h1> a&nbsp;b \t\n c&nbsp;</h1>";
+    for mode in [Mode::Batch, Mode::Streaming] {
+        let items = outline(html, mode).unwrap();
+        assert_eq!(titles(&items), ["a\u{a0}b c\u{a0}"], "{mode:?}");
+    }
+}
+
+#[test]
+fn table_rows_and_row_groups_get_entries_on_their_own_pages() {
+    let html = "<style>td { height: 300px; padding: 0; } tbody { bookmark-level: 1; \
+                bookmark-label: \"Body\"; } tr { bookmark-level: 2; bookmark-label: attr(id); }\
+                </style><table><tbody>\
+                <tr id=r1><td>a</td></tr><tr id=r2><td>b</td></tr>\
+                <tr id=r3><td>c</td></tr><tr id=r4><td>d</td></tr></tbody></table>";
+    for mode in [Mode::Batch, Mode::Streaming] {
+        let items = outline(html, mode).unwrap();
+        assert_eq!(titles(&items), ["Body", "r1", "r2", "r3", "r4"], "{mode:?}");
+        assert_eq!(depths(&items), [0, 1, 1, 1, 1], "{mode:?}");
+        let pages: Vec<usize> = items.iter().map(|i| i.page).collect();
+        assert!(
+            pages.windows(2).all(|w| w[0] <= w[1]),
+            "{mode:?}: {pages:?}"
+        );
+        assert!(pages[4] > pages[1], "{mode:?}: {pages:?}");
+        for item in &items {
+            assert!(item.top > 0.0 && item.top < 842.0, "{mode:?}: {item:?}");
+        }
+    }
+}
+
+#[test]
+fn floats_positioned_and_inline_blocks_get_entries_once() {
+    let html = "<style>.b { bookmark-level: 1; } .f { float: left; width: 50px; } \
+                .a { position: absolute; top: 10px; left: 10px; } \
+                .x { position: fixed; top: 0; left: 0; } \
+                .i { display: inline-block; }</style>\
+                <div class='b f'>float</div><div class='b a'>abs</div>\
+                <div class='b x'>fixed</div><span class='b i'>inline-block</span>\
+                <div style='display: grid'><div class=b>grid item</div></div>\
+                <div style='height: 1500px'></div>";
+    for mode in [Mode::Batch, Mode::Streaming] {
+        let mut got = titles(&outline(html, mode).unwrap())
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        got.sort();
+        let mut want = vec!["float", "abs", "inline-block", "grid item", "fixed"];
+        want.sort();
+        // Streaming does not lay out fixed or absolute boxes.
+        if mode == Mode::Streaming {
+            want.retain(|t| *t != "fixed" && *t != "abs");
+            got.retain(|t| t != "fixed" && t != "abs");
+        }
+        assert_eq!(got, want, "{mode:?}");
+    }
+}
+
+#[test]
+fn an_element_with_an_empty_label_gets_no_entry() {
+    let html = "<style>h1, h2 { bookmark-level: 1; }</style>\
+                <h1> </h1><h2 style=\"bookmark-label: ''\">text</h2><h1>Kept</h1>";
+    for mode in [Mode::Batch, Mode::Streaming] {
+        let items = outline(html, mode).unwrap();
+        assert_eq!(titles(&items), ["Kept"], "{mode:?}");
+    }
+}
+
+#[test]
+fn bookmark_level_on_html_and_body_is_ignored() {
+    let html = "<style>html, body { bookmark-level: 1; } h1 { bookmark-level: 2; }</style>\
+                <h1>Heading</h1>";
+    for mode in [Mode::Batch, Mode::Streaming] {
+        let items = outline(html, mode).unwrap();
+        assert_eq!(titles(&items), ["Heading"], "{mode:?}");
+        assert_eq!(depths(&items), [0], "{mode:?}");
+    }
+}

@@ -206,6 +206,7 @@ pub fn embed_font(
     let subset_data = subsetter::subset(font.data(), font.face_index(), &remapper)
         .unwrap_or_else(|_| font.data().to_vec());
     let compressed = maybe_deflate(&subset_data, compress);
+    let name = subset_font_name(font, &subset_data);
 
     let mut font_file = pdf.stream(ids.font_file, &compressed);
     if compress {
@@ -220,7 +221,7 @@ pub fn embed_font(
     let bbox = font.bounding_box();
 
     pdf.font_descriptor(ids.descriptor)
-        .name(Name(b"EmbeddedFont"))
+        .name(Name(name.as_bytes()))
         .flags(FontFlags::NON_SYMBOLIC)
         .bbox(PdfRect::new(
             to_1000(bbox.x_min as f32),
@@ -250,7 +251,7 @@ pub fn embed_font(
 
     let mut cid_font = pdf.cid_font(ids.cid_font);
     cid_font.subtype(CidFontType::Type2);
-    cid_font.base_font(Name(b"EmbeddedFont"));
+    cid_font.base_font(Name(name.as_bytes()));
     cid_font.system_info(SystemInfo {
         registry: Str(b"Adobe"),
         ordering: Str(b"Identity"),
@@ -283,7 +284,7 @@ pub fn embed_font(
     to_unicode.finish();
 
     pdf.type0_font(ids.type0_font)
-        .base_font(Name(b"EmbeddedFont"))
+        .base_font(Name(name.as_bytes()))
         .encoding_predefined(Name(b"Identity-H"))
         .descendant_font(ids.cid_font)
         .to_unicode(ids.to_unicode);
@@ -316,6 +317,7 @@ pub fn embed_font_streaming_chunks(
         .unwrap_or_else(|_| font.data().to_vec());
 
     let compressed_font = maybe_deflate(&subset_data, compress);
+    let name = subset_font_name(font, &subset_data);
     let mut chunk = Chunk::new();
     let mut font_file = chunk.stream(ids.font_file, &compressed_font);
     if compress {
@@ -332,7 +334,7 @@ pub fn embed_font_streaming_chunks(
     let mut chunk = Chunk::new();
     chunk
         .font_descriptor(ids.descriptor)
-        .name(Name(b"EmbeddedFont"))
+        .name(Name(name.as_bytes()))
         .flags(FontFlags::NON_SYMBOLIC)
         .bbox(PdfRect::new(
             to_1000(bbox.x_min as f32),
@@ -373,7 +375,7 @@ pub fn embed_font_streaming_chunks(
     let mut chunk = Chunk::new();
     let mut cid_font = chunk.cid_font(ids.cid_font);
     cid_font.subtype(CidFontType::Type2);
-    cid_font.base_font(Name(b"EmbeddedFont"));
+    cid_font.base_font(Name(name.as_bytes()));
     cid_font.system_info(SystemInfo {
         registry: Str(b"Adobe"),
         ordering: Str(b"Identity"),
@@ -413,13 +415,44 @@ pub fn embed_font_streaming_chunks(
     let mut chunk = Chunk::new();
     chunk
         .type0_font(ids.type0_font)
-        .base_font(Name(b"EmbeddedFont"))
+        .base_font(Name(name.as_bytes()))
         .encoding_predefined(Name(b"Identity-H"))
         .descendant_font(ids.cid_font)
         .to_unicode(ids.to_unicode);
     chunks.push((ids.type0_font, chunk));
 
     chunks
+}
+
+/// The name of an embedded subset: a six-letter tag, a `+`, and the font's PostScript name
+/// (`ABCDEF+DMSans-Regular`), as ISO 32000-1 9.6.4 requires. It is the `/FontName` of the
+/// descriptor and the `/BaseFont` of the CIDFont and, for a CIDFontType2 as the spec says,
+/// of the Type0 font as well.
+///
+/// The tag is derived from the subset, so different subsets of one font get different tags
+/// and identical input gives identical output.
+fn subset_font_name(font: &Font, subset_data: &[u8]) -> String {
+    format!(
+        "{}+{}",
+        subset_tag(font.pdf_name(), subset_data),
+        font.pdf_name()
+    )
+}
+
+/// Six uppercase letters taken from an FNV-1a hash of the font's name and the subset's bytes.
+fn subset_tag(name: &str, subset_data: &[u8]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for &byte in name.as_bytes().iter().chain([0].iter()).chain(subset_data) {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    (0..6)
+        .map(|_| {
+            let letter = (b'A' + (hash % 26) as u8) as char;
+            hash /= 26;
+            letter
+        })
+        .collect()
 }
 
 /// Compress with zlib (`/FlateDecode`). Returns the data uncompressed when `compress` is
@@ -491,6 +524,16 @@ mod tests {
         usage.record(&font, 100, "fl");
 
         assert_eq!(usage.glyphs[&100].1, "fl");
+    }
+
+    #[test]
+    fn a_subset_tag_is_six_uppercase_letters_that_follow_the_subset() {
+        let tag = subset_tag("DejaVuSans", b"glyphs one");
+        assert_eq!(tag.len(), 6);
+        assert!(tag.bytes().all(|b| b.is_ascii_uppercase()));
+        assert_eq!(tag, subset_tag("DejaVuSans", b"glyphs one"));
+        assert_ne!(tag, subset_tag("DejaVuSans", b"glyphs two"));
+        assert_ne!(tag, subset_tag("DejaVuSerif", b"glyphs one"));
     }
 
     #[test]

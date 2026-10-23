@@ -850,6 +850,7 @@ fn layout_box_impl(
                 style.table_layout,
                 h_spacing,
                 v_spacing,
+                style.border_collapse == BorderCollapse::Collapse,
                 content_x,
                 content_y,
                 pos,

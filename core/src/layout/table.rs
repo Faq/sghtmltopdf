@@ -109,6 +109,7 @@ pub(super) fn layout_table(
                 caption,
                 caption_side: table.caption_side,
                 rows: Vec::new(),
+                trailing_gap: 0.0,
             },
             total_height,
             containing_width,
@@ -270,7 +271,12 @@ pub(super) fn layout_table(
     // distributed is decided by the computed `vertical-align` (four cases,
     // top/middle/bottom/baseline, CSS2.1 17.5.3).
     let mut laid_rows = Vec::with_capacity(table.rows.len());
-    for (row, (row_cells, laid_row)) in table.rows.iter().zip(grid.iter().zip(laid_grid)) {
+    for (r, (row, (row_cells, laid_row))) in table
+        .rows
+        .iter()
+        .zip(grid.iter().zip(laid_grid))
+        .enumerate()
+    {
         let mut laid_cells: Vec<LaidOutBox> = row_cells
             .iter()
             .zip(laid_row)
@@ -332,6 +338,7 @@ pub(super) fn layout_table(
             cells: laid_cells,
             section: row.section,
             group: row.group,
+            gap_above: row_gaps[r],
         });
     }
 
@@ -353,6 +360,7 @@ pub(super) fn layout_table(
             caption: final_caption,
             caption_side: table.caption_side,
             rows: laid_rows,
+            trailing_gap: row_gaps[row_count],
         },
         total_height,
         // The columns can add up to more than the width offered (min-content floors), in which
@@ -374,43 +382,40 @@ fn collapsed_row_gaps(
     let rows = &table.rows;
     let row_count = rows.len();
     let style_of = |node: Option<NodeId>| node.and_then(|n| styles.get(&n));
-    let mut gaps = vec![0.0f32; row_count + 1];
-    for (b, gap) in gaps.iter_mut().enumerate() {
-        let mut row_width = 0.0f32;
+    let mut row_widths = vec![0.0f32; row_count + 1];
+    for (b, row_width) in row_widths.iter_mut().enumerate() {
         if let Some(upper) = b.checked_sub(1).map(|r| &rows[r]) {
             let last_in_group = rows.get(b).is_none_or(|next| next.group != upper.group);
             let groups = style_of(upper.group).filter(|_| last_in_group);
             for s in style_of(upper.node).into_iter().chain(groups) {
-                row_width = row_width.max(resolve_border(s).bottom);
+                *row_width = row_width.max(resolve_border(s).bottom);
             }
         }
         if let Some(lower) = rows.get(b) {
             let first_in_group = b == 0 || rows[b - 1].group != lower.group;
             let groups = style_of(lower.group).filter(|_| first_in_group);
             for s in style_of(lower.node).into_iter().chain(groups) {
-                row_width = row_width.max(resolve_border(s).top);
+                *row_width = row_width.max(resolve_border(s).top);
             }
         }
-        if row_width <= 0.0 {
-            continue;
-        }
-        let cells_width = grid
-            .iter()
-            .flatten()
-            .filter_map(|gc| {
-                let border = resolve_border(&box_style(&gc.cell.content, styles));
-                if gc.row_index + gc.cell.rowspan == b {
-                    Some(border.bottom)
-                } else if gc.row_index == b {
-                    Some(border.top)
-                } else {
-                    None
-                }
-            })
-            .fold(0.0f32, f32::max);
-        *gap = (row_width - cells_width).max(0.0);
     }
-    gaps
+    if row_widths.iter().all(|&w| w <= 0.0) {
+        return row_widths;
+    }
+    // Collected in one pass over the cells rather than per boundary, which on a long table
+    // with a border on every row was quadratic.
+    let mut cells_widths = vec![0.0f32; row_count + 1];
+    for gc in grid.iter().flatten() {
+        let border = resolve_border(&box_style(&gc.cell.content, styles));
+        let end = (gc.row_index + gc.cell.rowspan).min(row_count);
+        cells_widths[end] = cells_widths[end].max(border.bottom);
+        cells_widths[gc.row_index] = cells_widths[gc.row_index].max(border.top);
+    }
+    row_widths
+        .iter()
+        .zip(&cells_widths)
+        .map(|(row_width, cells_width)| (row_width - cells_width).max(0.0))
+        .collect()
 }
 
 /// The computed `vertical-align` of the cell (`display: table-cell`) itself.

@@ -51,7 +51,8 @@ use crate::html::NodeId;
 use crate::img::resolve_against_base_href;
 use crate::layout::{
     resolve_border, shape_standalone_line, EdgeSizes, EmphasisMark, FragmentPosition, LaidOutBox,
-    LaidOutContent, LaidOutTableRow, Layout, LineBox, Page, PageSettings, Rect, TextRun,
+    LaidOutContent, LaidOutTable, LaidOutTableRow, Layout, LineBox, Page, PageSettings, Rect,
+    TextRun,
 };
 use crate::sink::Sink;
 use crate::style::{
@@ -1651,7 +1652,7 @@ fn render_box_with_style_inner(
             // Row and row-group borders are drawn only in the collapsing model (CSS2.1
             // 17.6.1: in the separate model rows and row groups cannot have borders).
             let collapse_rows = if collapse {
-                CollapsedRows::new(&table.rows, &all_cells, styles)
+                CollapsedRows::new(table, &all_cells, styles)
             } else {
                 CollapsedRows::default()
             };
@@ -1846,14 +1847,16 @@ fn resolve_collapsed_cell_style(
     if has_top_neighbor || start_row.is_some_and(|i| i > 0) {
         resolved.border_top_style = BorderStyle::None;
         resolved.border_top_width = Length(0.0);
-    } else if let Some(i) = start_row {
+    } else if start_row.is_some() {
         let own = border_edge(
             cell_style.border_top_width.0,
             cell_style.border_top_style,
             cell_style.border_top_color,
         );
-        let edges = std::iter::once(own).chain(rows.top_edges(i));
-        set_top_edge(&mut resolved, merge_border_edges(edges));
+        set_top_edge(
+            &mut resolved,
+            merge_border_edges([own, rows.first_top_edge()]),
+        );
     }
 
     if let Some(right_neighbor) = all_cells.iter().find(|other| {
@@ -1899,9 +1902,13 @@ fn resolve_collapsed_cell_style(
         cell_style.border_bottom_style,
         cell_style.border_bottom_color,
     );
-    let upper: Vec<BorderEdge> = std::iter::once(own_bottom)
-        .chain(end_row.into_iter().flat_map(|i| rows.bottom_edges(i)))
-        .collect();
+    let upper: Vec<BorderEdge> = match end_row {
+        Some(i) if i + 1 == rows.rows.len() => vec![own_bottom, rows.last_bottom_edge()],
+        Some(i) => std::iter::once(own_bottom)
+            .chain(rows.bottom_edges(i))
+            .collect(),
+        None => vec![own_bottom],
+    };
     let bottom_neighbor = all_cells.iter().find(|other| {
         let o = other.layout.border_box();
         (o.y - (rect.y + rect.height)).abs() < EPSILON
@@ -2016,6 +2023,40 @@ struct CollapsedRow<'a> {
     last_in_group: bool,
 }
 
+/// One row's top or bottom edges and, where its group starts or ends there, the group's.
+fn row_edges<'a>(
+    row: &LaidOutTableRow,
+    styles: &'a HashMap<NodeId, Rc<ComputedStyle>>,
+    top: bool,
+) -> impl Iterator<Item = BorderEdge> + 'a {
+    let style_of = |node: Option<NodeId>| node.and_then(|n| styles.get(&n)).map(Rc::as_ref);
+    let group_ends = if top {
+        row.first_in_group
+    } else {
+        row.last_in_group
+    };
+    let edge = move |s: &ComputedStyle| {
+        if top {
+            border_edge(s.border_top_width.0, s.border_top_style, s.border_top_color)
+        } else {
+            border_edge(
+                s.border_bottom_width.0,
+                s.border_bottom_style,
+                s.border_bottom_color,
+            )
+        }
+    };
+    style_of(row.node)
+        .map(edge)
+        .into_iter()
+        .chain(style_of(row.group).filter(|_| group_ends).map(edge))
+}
+
+/// `edge` with its width scaled by `share`, for a collapsed border split by a page break.
+fn scale_edge((width, style, color): BorderEdge, share: f32) -> BorderEdge {
+    (width * share, style, color)
+}
+
 /// The rows of one table (or of the part of it placed on a page) under
 /// `border-collapse: collapse`, spanning `left..right` (the outer edges of the cells).
 #[derive(Debug, Default)]
@@ -2023,17 +2064,22 @@ struct CollapsedRows<'a> {
     rows: Vec<CollapsedRow<'a>>,
     left: f32,
     right: f32,
+    /// At a page break above the first row or below the last, the edges of the row across it
+    /// and the part of the border there that this fragment draws (see [`crate::layout::TableBreak`]).
+    across_above: Option<(Vec<BorderEdge>, f32)>,
+    across_below: Option<(Vec<BorderEdge>, f32)>,
 }
 
 impl<'a> CollapsedRows<'a> {
     fn new(
-        rows: &[LaidOutTableRow],
+        table: &LaidOutTable,
         all_cells: &[&LaidOutBox],
         styles: &'a HashMap<NodeId, Rc<ComputedStyle>>,
     ) -> Self {
+        let rows = &table.rows;
         let style_of = |node: Option<NodeId>| node.and_then(|n| styles.get(&n)).map(Rc::as_ref);
         let mut bands: Vec<CollapsedRow<'a>> = Vec::new();
-        for (i, row) in rows.iter().enumerate() {
+        for row in rows {
             let Some(top) = row
                 .cells
                 .iter()
@@ -2055,8 +2101,8 @@ impl<'a> CollapsedRows<'a> {
                 cells_bottom,
                 row: style_of(row.node),
                 group: style_of(row.group),
-                first_in_group: i == 0 || rows[i - 1].group != row.group,
-                last_in_group: rows.get(i + 1).is_none_or(|next| next.group != row.group),
+                first_in_group: row.first_in_group,
+                last_in_group: row.last_in_group,
             });
         }
         for i in 1..bands.len() {
@@ -2075,6 +2121,41 @@ impl<'a> CollapsedRows<'a> {
             rows: bands,
             left,
             right,
+            across_above: rows
+                .first()
+                .and_then(|r| r.break_above.as_ref())
+                .map(|b| (row_edges(&b.row, styles, false).collect(), b.share)),
+            across_below: rows
+                .last()
+                .and_then(|r| r.break_below.as_ref())
+                .map(|b| (row_edges(&b.row, styles, true).collect(), b.share)),
+        }
+    }
+
+    /// The row and group edges along the top of the first row. Below a page break, Chrome
+    /// draws the border of the boundary there split between the two pages, so the edges of
+    /// the row above the break are merged in and this page's share of the width is drawn.
+    fn first_top_edge(&self) -> BorderEdge {
+        let own = self.top_edges(0);
+        match &self.across_above {
+            Some((across, share)) => scale_edge(
+                merge_border_edges(across.iter().copied().chain(own)),
+                *share,
+            ),
+            None => merge_border_edges(own),
+        }
+    }
+
+    /// The row and group edges along the bottom of the last row, split above a page break
+    /// (see [`Self::first_top_edge`]).
+    fn last_bottom_edge(&self) -> BorderEdge {
+        let own = self.bottom_edges(self.rows.len() - 1);
+        match &self.across_below {
+            Some((across, share)) => scale_edge(
+                merge_border_edges(own.chain(across.iter().copied())),
+                *share,
+            ),
+            None => merge_border_edges(own),
         }
     }
 
@@ -2182,7 +2263,7 @@ fn render_collapsed_row_gaps(
         for (x0, x1) in uncovered_ranges(rows.left, rows.right, cells_in_band(row.top, row.bottom))
         {
             if i == 0 {
-                let edge = merge_border_edges(rows.top_edges(i));
+                let edge = rows.first_top_edge();
                 draw_horizontal_edge(
                     content,
                     settings,
@@ -2195,7 +2276,7 @@ fn render_collapsed_row_gaps(
             }
             let upper: Vec<BorderEdge> = rows.bottom_edges(i).collect();
             let Some(next) = rows.rows.get(i + 1) else {
-                let edge = merge_border_edges(upper);
+                let edge = rows.last_bottom_edge();
                 draw_horizontal_edge(
                     content,
                     settings,
@@ -6027,6 +6108,123 @@ mod tests {
         let min_y = ys.clone().fold(f32::MAX, f32::min);
         let max_y = ys.fold(f32::MIN, f32::max);
         (min_x, max_x, max_y - min_y)
+    }
+
+    /// The `(bottom, top)` of every red polygon on each page, in PDF coordinates.
+    fn red_bands_per_page(html_src: &str, css: &str) -> Vec<Vec<(f32, f32)>> {
+        page_streams(html_src, css)
+            .iter()
+            .map(|stream| {
+                polygon_fills_of(stream, "1 0 0 rg")
+                    .iter()
+                    .map(|points| {
+                        let ys = points.iter().map(|p| p.1);
+                        (
+                            ys.clone().fold(f32::MAX, f32::min),
+                            ys.fold(f32::MIN, f32::max),
+                        )
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn one_column_rows(row_count: usize) -> String {
+        (0..row_count)
+            .map(|i| format!("<tr><td>{i}</td></tr>"))
+            .collect()
+    }
+
+    const SPLIT_CSS: &str = "body { margin: 0 } table { border-collapse: collapse } \
+                             td, th { height: 20px; padding: 0 }";
+
+    #[test]
+    fn a_collapsed_row_border_at_a_page_break_is_drawn_half_on_each_page() {
+        let html_src = format!("<table>{}</table>", one_column_rows(80));
+        let css = format!("{SPLIT_CSS} tr {{ border-bottom: 8px solid rgb(255, 0, 0) }}");
+        let pages = red_bands_per_page(&html_src, &css);
+        let settings = PageSettings::default();
+        let content_top = settings.size.height - settings.margin.top;
+        let last_on_first = pages[0].iter().min_by(|a, b| a.0.total_cmp(&b.0)).unwrap();
+        assert!(
+            (last_on_first.1 - last_on_first.0 - 4.0).abs() < 0.01,
+            "{last_on_first:?}"
+        );
+        let first_on_second = pages[1].iter().max_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
+        assert!(
+            (first_on_second.1 - content_top).abs() < 0.01
+                && (first_on_second.1 - first_on_second.0 - 4.0).abs() < 0.01,
+            "{first_on_second:?}"
+        );
+    }
+
+    #[test]
+    fn no_collapsed_border_at_a_page_break_reaches_below_the_content_area() {
+        let settings = PageSettings::default();
+        let (bottom, top) = (
+            settings.margin.bottom,
+            settings.size.height - settings.margin.top,
+        );
+        let rows = one_column_rows(80);
+        let cases = (1..=12).flat_map(|w| {
+            [
+                (
+                    format!("<table>{rows}</table>"),
+                    format!("tr {{ border-bottom: {w}px solid rgb(255, 0, 0) }}"),
+                ),
+                (
+                    format!("<table>{rows}</table>"),
+                    format!("tr {{ border-top: {w}px solid rgb(255, 0, 0) }}"),
+                ),
+                (
+                    format!(
+                        "<table><thead><tr><th>No</th></tr></thead><tbody>{rows}</tbody></table>"
+                    ),
+                    format!("tbody {{ border-bottom: {w}px solid rgb(255, 0, 0) }}"),
+                ),
+            ]
+        });
+        for (html_src, border) in cases {
+            let pages = red_bands_per_page(&html_src, &format!("{SPLIT_CSS} {border}"));
+            assert!(pages.len() >= 2, "{border}");
+            for (i, bands) in pages.iter().enumerate() {
+                for &(b, t) in bands {
+                    assert!(
+                        b >= bottom - 0.01 && t <= top + 0.01,
+                        "{border}: page {i} draws {b}..{t} outside {bottom}..{top}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_row_group_border_is_drawn_only_where_the_group_ends() {
+        let html_src = format!(
+            "<table><thead><tr><th>No</th></tr></thead><tbody>{}</tbody></table>",
+            one_column_rows(80)
+        );
+        let css = format!("{SPLIT_CSS} tbody {{ border-bottom: 6px solid rgb(255, 0, 0) }}");
+        let pages = red_bands_per_page(&html_src, &css);
+        let (last, before) = pages.split_last().unwrap();
+        assert!(before.iter().all(Vec::is_empty), "{pages:?}");
+        assert_eq!(last.len(), 1, "{pages:?}");
+        assert!((last[0].1 - last[0].0 - 6.0).abs() < 0.01, "{pages:?}");
+    }
+
+    #[test]
+    fn below_a_repeated_head_the_row_border_is_drawn_whole() {
+        let html_src = format!(
+            "<table><thead><tr><th>No</th></tr></thead><tbody>{}</tbody></table>",
+            one_column_rows(80)
+        );
+        let css = format!("{SPLIT_CSS} tr {{ border-bottom: 8px solid rgb(255, 0, 0) }}");
+        let pages = red_bands_per_page(&html_src, &css);
+        let below_head = pages[1].iter().max_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
+        assert!(
+            (below_head.1 - below_head.0 - 8.0).abs() < 0.01,
+            "{below_head:?}"
+        );
     }
 
     #[test]

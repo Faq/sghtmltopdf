@@ -490,3 +490,100 @@ fn a_split_table_keeps_the_space_of_its_collapsed_borders_at_both_ends() {
         paragraph - last_bottom
     );
 }
+
+fn collapsed_table(row_count: usize) -> String {
+    let rows: String = (0..row_count)
+        .map(|i| format!("<tr><td>{i}</td></tr>"))
+        .collect();
+    format!("<table>{rows}</table>")
+}
+
+#[test]
+fn a_row_border_at_a_page_break_is_split_between_the_pages() {
+    // As in Chrome, half of the border goes below the last row of the page and half above the
+    // first row of the next.
+    let css = format!("{COLLAPSED_CSS} tr {{ border-bottom: 8px solid red }}");
+    let pages = row_extents_per_page(&collapsed_table(80), &css);
+    let content_height = PageSettings::default().content_height();
+    for (i, pair) in pages.windows(2).enumerate() {
+        let (above, below) = (&pair[0].0, &pair[1].0);
+        let last_bottom = above.last().unwrap().1;
+        assert!(
+            last_bottom + 4.0 <= content_height + 0.01,
+            "page {i}: no room for the upper half below {last_bottom}"
+        );
+        assert!(
+            (below[0].0 - 4.0).abs() < 0.01,
+            "page {}: the first row starts at {}",
+            i + 1,
+            below[0].0
+        );
+    }
+}
+
+#[test]
+fn a_row_whose_half_border_does_not_fit_stays_and_the_whole_border_moves_down() {
+    // The first row ends 1px above the bottom of the page, too little for half of its 6px
+    // border. Chrome keeps the row there and draws the whole border on the next page.
+    let content_height = PageSettings::default().content_height();
+    let filler = content_height - 21.0;
+    let html_src = format!("<div class=\"filler\"></div>{}", collapsed_table(3));
+    let css = format!(
+        "{COLLAPSED_CSS} div.filler {{ height: {filler}px }} tr {{ border-bottom: 6px solid red }}"
+    );
+    let pages = row_extents_per_page(&html_src, &css);
+    assert_eq!(pages[0].0.len(), 1, "{pages:?}");
+    assert!(
+        (pages[0].0[0].1 - (content_height - 1.0)).abs() < 0.01,
+        "{pages:?}"
+    );
+    assert!((pages[1].0[0].0 - 6.0).abs() < 0.01, "{pages:?}");
+}
+
+#[test]
+fn a_row_group_border_takes_no_space_at_a_page_break() {
+    // Chrome draws a row group's border only where the group starts and ends, not at a break
+    // inside it.
+    let html_src = format!(
+        "<table><tbody>{}</tbody></table>",
+        (0..80)
+            .map(|i| format!("<tr><td>{i}</td></tr>"))
+            .collect::<String>()
+    );
+    let css = format!(
+        "{COLLAPSED_CSS} tbody {{ border-top: 6px solid blue; border-bottom: 6px solid red }}"
+    );
+    let pages = row_extents_per_page(&html_src, &css);
+    let plain = row_extents_per_page(&html_src, COLLAPSED_CSS);
+    assert!(pages.len() >= 2);
+    assert!(
+        pages[1].0[0].0.abs() < 0.01,
+        "the first row on page 2 starts at {}",
+        pages[1].0[0].0
+    );
+    assert_eq!(
+        pages[0].0.len(),
+        plain[0].0.len(),
+        "the group's top border fits in the space the page has left over"
+    );
+}
+
+#[test]
+fn below_a_repeated_head_the_row_border_takes_its_whole_width() {
+    // The first body row on a continuation page meets the repeated head, not the break.
+    let css = format!("{COLLAPSED_CSS} tr {{ border-bottom: 8px solid red }}");
+    let pages = row_extents_per_page(&collapsed_table_with_head(80), &css);
+    assert!(pages.len() >= 2);
+    for (i, (rows, _)) in pages.iter().enumerate() {
+        let ((head_top, head_bottom), (body_top, _)) = (rows[0], rows[1]);
+        assert!(
+            head_top.abs() < 0.01,
+            "page {i}: the head starts at {head_top}"
+        );
+        assert!(
+            (body_top - head_bottom - 8.0).abs() < 0.01,
+            "page {i}: the first body row starts {} below the head",
+            body_top - head_bottom
+        );
+    }
+}

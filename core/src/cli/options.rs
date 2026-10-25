@@ -257,6 +257,11 @@ pub struct ConvertArgs {
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_pdf_compression: bool,
 
+    /// Write a tagged PDF: a structure tree for screen readers, with headers, footers and
+    /// backgrounds marked as artifacts (not available with --streaming)
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub tagged: bool,
+
     /// Base for resolving relative references (a directory or an http(s) URL; used when reading from standard input)
     #[arg(long, value_name = "URL|DIR")]
     pub base_url: Option<String>,
@@ -597,12 +602,17 @@ impl ConvertArgs {
                 author: self.author.clone(),
                 subject: self.subject.clone(),
                 keywords: self.keywords.clone(),
+                // Filled from the document's `<html lang>` by the engine.
+                lang: None,
             },
             compress: !self.no_pdf_compression,
             scale: PdfOutputOptions::scale_from_dpi_and_zoom(self.dpi, self.zoom),
             grayscale: self.grayscale,
             header_line: self.header_line,
             footer_line: self.footer_line,
+            tagged: self.tagged,
+            // Filled from the document by the engine.
+            tag_roles: Default::default(),
         }
     }
 

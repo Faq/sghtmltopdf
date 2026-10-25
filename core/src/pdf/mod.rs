@@ -7,6 +7,7 @@ mod img;
 mod options;
 mod streaming;
 mod svg;
+mod tagging;
 
 pub use document::{
     anchor_destination_name, encode_pdf, encode_pdf_with_anchors, encode_pdf_with_options,
@@ -20,3 +21,4 @@ pub use options::{
 };
 pub use streaming::StreamingPdfWriter;
 pub use svg::SvgFontDb;
+pub use tagging::{collect_tag_roles, find_document_lang, TagRole};

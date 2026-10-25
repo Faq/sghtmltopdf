@@ -39,8 +39,8 @@ use crate::layout::{
     PageSettings, Rect, StreamingPaginator,
 };
 use crate::pdf::{
-    anchor_destination_name, ImageAssetCache, LinkSettings, PageOverlay, PdfOutputOptions,
-    PreparedImage, StreamingPdfWriter, SvgFontDb,
+    anchor_destination_name, collect_tag_roles, find_document_lang, ImageAssetCache, LinkSettings,
+    PageOverlay, PdfOutputOptions, PreparedImage, StreamingPdfWriter, SvgFontDb,
 };
 use crate::sink::Sink;
 use crate::style::{
@@ -1269,6 +1269,14 @@ impl<S: Sink> Engine<S> {
         };
         let _ = html_style;
 
+        if self.options.output.tagged {
+            return Err(EngineError::UnsupportedInStreamingMode(
+                "a tagged PDF cannot be written in streaming mode\n  \
+                 (the structure tree needs the document's elements, which streaming frees as it goes).\n  \
+                 To use it, drop --streaming",
+            ));
+        }
+
         let body_border = resolve_border(&body_style);
         if has_visible_decoration(&body_style, &body_border) {
             return Err(EngineError::UnsupportedInStreamingMode(
@@ -1671,6 +1679,12 @@ impl<S: Sink> Engine<S> {
         output
             .metadata
             .fill_title_from_document(find_document_title(&dom));
+        if output.tagged {
+            output
+                .metadata
+                .fill_lang_from_document(find_document_lang(&dom));
+            output.tag_roles = collect_tag_roles(&dom);
+        }
 
         let image_cache = ImageAssetCache::with_fetcher(
             ImageFetcher::new(base_dir.to_path_buf(), options.allow_remote_assets)

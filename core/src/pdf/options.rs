@@ -4,6 +4,12 @@
 //! result, so they can be carried around together. The CLI's `--title`,
 //! `--no-pdf-compression`, `--grayscale`, `--dpi` and `--zoom` all end up here.
 
+use std::collections::HashMap;
+
+use crate::html::NodeId;
+
+use super::tagging::TagRole;
+
 /// The document metadata written to the PDF Info dictionary.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
@@ -16,6 +22,9 @@ pub struct DocumentMetadata {
     pub subject: Option<String>,
     /// `/Keywords`.
     pub keywords: Option<String>,
+    /// The document language (`/Lang`), written only to a tagged PDF. The `lang` of the root
+    /// `<html>` element goes here (resolved by the caller).
+    pub lang: Option<String>,
 }
 
 impl DocumentMetadata {
@@ -23,6 +32,13 @@ impl DocumentMetadata {
     pub fn fill_title_from_document(&mut self, document_title: Option<String>) {
         if self.title.is_none() {
             self.title = document_title.filter(|t| !t.trim().is_empty());
+        }
+    }
+
+    /// Adopt the `lang` of the root `<html>` element only when `lang` is unset.
+    pub fn fill_lang_from_document(&mut self, document_lang: Option<String>) {
+        if self.lang.is_none() {
+            self.lang = document_lang;
         }
     }
 }
@@ -47,6 +63,12 @@ pub struct PdfOutputOptions {
     pub header_line: bool,
     /// Draw a rule above the footer (`--footer-line`).
     pub footer_line: bool,
+    /// Write a tagged PDF (`--tagged`): a structure tree for accessibility, with page furniture
+    /// marked as artifacts. Not supported with `Mode::Streaming`.
+    pub tagged: bool,
+    /// Which elements become which structure elements (resolved by the caller from the DOM).
+    /// Used only when `tagged` is set.
+    pub tag_roles: HashMap<NodeId, TagRole>,
 }
 
 impl Default for PdfOutputOptions {
@@ -58,6 +80,8 @@ impl Default for PdfOutputOptions {
             grayscale: false,
             header_line: false,
             footer_line: false,
+            tagged: false,
+            tag_roles: HashMap::new(),
         }
     }
 }

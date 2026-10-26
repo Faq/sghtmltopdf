@@ -245,14 +245,8 @@ struct Elem {
     kids: Vec<Kid>,
     /// The stream (page) the element was first used on.
     first_stream: usize,
-    /// For a `Link`: what it links to and where its text is, for finding its annotation.
-    link: Option<LinkTarget>,
-}
-
-struct LinkTarget {
-    href: String,
-    page: Ref,
-    bounds: Bounds,
+    /// For a `Link`: where its text is, for finding its annotation.
+    link: Option<Bounds>,
 }
 
 /// A rectangle in the PDF coordinates of the page (CSS px, origin bottom left).
@@ -322,6 +316,10 @@ pub(super) struct Tagger {
     page_stream: usize,
     current_stream: usize,
     entries: Vec<(i32, ParentEntry)>,
+    /// The `Link` elements of the page being drawn, by what they link to, so an annotation finds
+    /// its element without scanning every element. The annotations of a page are attached as
+    /// soon as it is drawn, so the index only ever holds that page.
+    links: HashMap<String, Vec<usize>>,
     /// While above zero nothing is tagged (header, footer and other page furniture).
     suspended: u32,
 }
@@ -345,6 +343,7 @@ impl Tagger {
             page_stream: 0,
             current_stream: 0,
             entries: Vec::new(),
+            links: HashMap::new(),
             suspended: 0,
         }
     }
@@ -366,6 +365,7 @@ impl Tagger {
         let index = self.new_stream(page, None);
         self.page_stream = index;
         self.current_stream = index;
+        self.links.clear();
     }
 
     /// The `/StructParents` key of the page being drawn, if anything on it was tagged.
@@ -499,12 +499,8 @@ impl Tagger {
             return false;
         }
         let index = *self.stack.last().expect("just pushed");
-        let page = self.streams[self.page_stream].page;
-        self.elems[index].link = Some(LinkTarget {
-            href: href.to_string(),
-            page,
-            bounds,
-        });
+        self.elems[index].link = Some(bounds);
+        self.links.entry(href.to_string()).or_default().push(index);
         true
     }
 
@@ -559,15 +555,13 @@ impl Tagger {
         annotation: Ref,
     ) -> i32 {
         let best = self
-            .elems
-            .iter()
-            .enumerate()
-            .filter_map(|(index, elem)| {
-                let link = elem.link.as_ref()?;
-                if link.page != page || link.href != href {
-                    return None;
-                }
-                let overlap = link.bounds.overlap_area(&area);
+            .links
+            .get(href)
+            .into_iter()
+            .flatten()
+            .filter_map(|&index| {
+                let bounds = self.elems[index].link.as_ref()?;
+                let overlap = bounds.overlap_area(&area);
                 (overlap > 0.0).then_some((index, overlap))
             })
             .max_by(|a, b| a.1.total_cmp(&b.1))

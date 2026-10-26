@@ -4,12 +4,6 @@
 //! result, so they can be carried around together. The CLI's `--title`,
 //! `--no-pdf-compression`, `--grayscale`, `--dpi` and `--zoom` all end up here.
 
-use std::collections::HashMap;
-
-use crate::html::NodeId;
-
-use super::tagging::TagRole;
-
 /// The document metadata written to the PDF Info dictionary.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
@@ -66,9 +60,6 @@ pub struct PdfOutputOptions {
     /// Write a tagged PDF (`--tagged`): a structure tree for accessibility, with page furniture
     /// marked as artifacts. Not supported with `Mode::Streaming`.
     pub tagged: bool,
-    /// Which elements become which structure elements (resolved by the caller from the DOM).
-    /// Used only when `tagged` is set.
-    pub tag_roles: HashMap<NodeId, TagRole>,
 }
 
 impl Default for PdfOutputOptions {
@@ -81,7 +72,6 @@ impl Default for PdfOutputOptions {
             header_line: false,
             footer_line: false,
             tagged: false,
-            tag_roles: HashMap::new(),
         }
     }
 }

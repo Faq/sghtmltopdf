@@ -611,8 +611,6 @@ impl ConvertArgs {
             header_line: self.header_line,
             footer_line: self.footer_line,
             tagged: self.tagged,
-            // Filled from the document by the engine.
-            tag_roles: Default::default(),
         }
     }
 

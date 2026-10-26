@@ -336,3 +336,25 @@ fn a_link_around_an_image_still_gets_a_link_element_for_its_annotation() {
     assert_eq!(count(&bytes, "/Type /OBJR"), 1);
     assert_eq!(count(&bytes, "/StructParent "), 1);
 }
+
+// Each annotation must land in the Link element over its own text, also when many links on a
+// page share a target or there are many links overall (the lookup is indexed by target).
+#[test]
+fn many_links_each_get_their_own_link_element() {
+    let mut html = String::new();
+    for i in 0..300 {
+        // Every third link repeats the same target.
+        let target = if i % 3 == 0 { 0 } else { i };
+        html.push_str(&format!(
+            r#"<p><a href="https://e.example/{target}">link {i}</a></p>"#
+        ));
+    }
+    let bytes = build(&html, true);
+    assert_eq!(count(&bytes, "/Subtype /Link"), 300);
+    assert_eq!(count(&bytes, "/Type /OBJR"), 300);
+    assert_eq!(
+        count(&bytes, "/S /Link"),
+        300,
+        "none needed a Link element of its own"
+    );
+}

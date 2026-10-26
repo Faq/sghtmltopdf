@@ -35,7 +35,7 @@ use super::document::{
 use super::font::{deflate, embed_font_streaming_chunks, FontUsage};
 use super::img::{embed_image_streaming_chunks, ids_for_image, ImageIds, PreparedImage};
 use super::options::PdfOutputOptions;
-use super::tagging::{strip_empty_artifacts, Bounds, Tagger};
+use super::tagging::{strip_empty_artifacts, Bounds, TagRole, Tagger};
 
 const PDF_HEADER: &[u8] = b"%PDF-1.7\n%\x80\x80\x80\x80\n\n";
 
@@ -113,10 +113,15 @@ impl<S: Sink> StreamingPdfWriter<S> {
             page_rules,
             links,
             PdfOutputOptions::default(),
+            HashMap::new(),
         )
     }
 
     /// The version taking an explicit [`PdfOutputOptions`].
+    ///
+    /// `tag_roles` says which elements become which structure elements of a tagged PDF
+    /// ([`PdfOutputOptions::tagged`]), as found by [`collect_tag_roles`](super::collect_tag_roles). It is unused
+    /// otherwise.
     pub fn with_options(
         fonts: &FontCollection,
         settings: PageSettings,
@@ -124,6 +129,7 @@ impl<S: Sink> StreamingPdfWriter<S> {
         page_rules: Vec<PageRule>,
         links: LinkSettings,
         output: PdfOutputOptions,
+        tag_roles: HashMap<NodeId, TagRole>,
     ) -> Result<Self, S::Error> {
         sink.write(PDF_HEADER)?;
 
@@ -137,7 +143,7 @@ impl<S: Sink> StreamingPdfWriter<S> {
         let usages = (0..fonts.len()).map(|_| FontUsage::default()).collect();
         let alpha_gs_ids: Vec<Ref> = (0..=ALPHA_STEPS).map(|_| alloc.next()).collect();
         let alpha_gs_names: Vec<String> = (0..=ALPHA_STEPS).map(alpha_gs_resource_name).collect();
-        let tagger = output.tagged.then(|| Tagger::new(output.tag_roles.clone()));
+        let tagger = output.tagged.then(|| Tagger::new(tag_roles));
 
         let mut writer = Self {
             sink,

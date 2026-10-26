@@ -1329,6 +1329,8 @@ impl<S: Sink> Engine<S> {
                 keep_relative: self.options.content.keep_relative_links,
             },
             output,
+            // Tagging is refused in streaming mode above.
+            HashMap::new(),
         )
         .map_err(EngineError::Io)?;
         let image_cache = ImageAssetCache::with_fetcher(
@@ -1683,8 +1685,12 @@ impl<S: Sink> Engine<S> {
             output
                 .metadata
                 .fill_lang_from_document(find_document_lang(&dom));
-            output.tag_roles = collect_tag_roles(&dom);
         }
+        let tag_roles = if output.tagged {
+            collect_tag_roles(&dom)
+        } else {
+            HashMap::new()
+        };
 
         let image_cache = ImageAssetCache::with_fetcher(
             ImageFetcher::new(base_dir.to_path_buf(), options.allow_remote_assets)
@@ -1772,6 +1778,7 @@ impl<S: Sink> Engine<S> {
                 keep_relative: options.content.keep_relative_links,
             },
             output,
+            tag_roles,
         )
         .map_err(EngineError::Io)?;
 

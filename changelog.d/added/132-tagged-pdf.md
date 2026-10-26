@@ -6,3 +6,8 @@ annotation) and images with an `alt` as `Figure`s carrying it. Backgrounds, bord
 footers, a `<thead>` repeated on a later page and an `<img>` without `alt` are marked as
 artifacts, and the `lang` of `<html>` becomes the document `/Lang`. `--streaming` does not
 support it.
+
+Two known limitations of the structure tree: it follows paint order, not DOM order, so floats
+and `z-index` can reorder it (an `H2` before the `Div > H1` it follows in the HTML); and a link
+around an image gets a `Link` element of its own at the end of the document, as a sibling of the
+`Figure`, instead of one that wraps it.

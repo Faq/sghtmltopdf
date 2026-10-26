@@ -12,11 +12,12 @@ use selectors::parser::{
 };
 
 use super::custom_properties::{
-    parse_declaration_or_defer, parse_property_rule_block, PropertyRegistration,
+    is_known_property, parse_declaration_or_defer, parse_property_rule_block, split_important,
+    PropertyRegistration,
 };
 use super::font_face::{parse_font_face_block, FontFaceRule};
 use super::page_rule::{parse_page_rule_block, parse_page_selector, PageRule};
-use super::properties::{is_known_property, PropertyDeclaration};
+use super::properties::PropertyDeclaration;
 use super::rule_index::RuleIndex;
 use super::selector_impl::{SelectorParser, SgSelectorImpl};
 
@@ -490,8 +491,8 @@ fn supports_in_parens<'i, 't>(input: &mut Parser<'i, 't>) -> Result<bool, ParseE
 fn supports_declaration<'i, 't>(input: &mut Parser<'i, 't>) -> Result<bool, ParseError<'i, ()>> {
     let name = input.expect_ident_cloned()?;
     input.expect_colon()?;
-    // A `var()` value is deferred without being parsed, so the name has to be checked
-    // separately: an unknown property is never supported.
+    // A `var()` value is deferred without being parsed, so an unknown property would be
+    // accepted with it; the name is checked separately.
     if !name.starts_with("--") && !is_known_property(&name) {
         drain(input);
         return Ok(false);
@@ -500,11 +501,7 @@ fn supports_declaration<'i, 't>(input: &mut Parser<'i, 't>) -> Result<bool, Pars
     // take it on ordinary properties, so the value is parsed without it.
     let start = input.position();
     drain(input);
-    let raw = input.slice_from(start).trim_end();
-    let value = match raw.rfind('!') {
-        Some(bang) if raw[bang + 1..].trim().eq_ignore_ascii_case("important") => &raw[..bang],
-        _ => raw,
-    };
+    let (value, _) = split_important(input.slice_from(start));
     let mut value_input = ParserInput::new(value);
     let mut value_parser = Parser::new(&mut value_input);
     let name = CowRcStr::from(name.to_string());

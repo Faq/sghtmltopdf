@@ -1,9 +1,6 @@
 //! Parsing of `Declaration: value;`, and the property declaration types.
 
-use cssparser::{
-    match_ignore_ascii_case, BasicParseErrorKind, CowRcStr, ParseError, ParseErrorKind, Parser,
-    ParserInput, Token,
-};
+use cssparser::{match_ignore_ascii_case, CowRcStr, ParseError, Parser, Token};
 use palette::{FromColor, Lab, Lch, Oklab, Oklch, Srgb};
 
 use super::color_mix::{self, HueMethod, Space as ColorSpace};
@@ -501,25 +498,8 @@ pub fn parse_declaration<'i>(
         "border-end-end-radius" => {
             Ok(vec![D::BorderBottomRightRadius(parse_corner_radius(input)?)])
         },
-        _ => Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(UNKNOWN_PROPERTY.into()))),
+        _ => Err(input.new_custom_error(())),
     }
-}
-
-/// Marks the error [`parse_declaration`] returns for a name it has no arm for, so that an
-/// unknown property can be told from a known one with a bad value ([`is_known_property`]).
-const UNKNOWN_PROPERTY: &str = "unknown-property";
-
-/// Whether [`parse_declaration`] has an arm for `name` (a known property, whatever the value).
-pub fn is_known_property(name: &CowRcStr<'_>) -> bool {
-    let mut parser_input = ParserInput::new("");
-    let mut input = Parser::new(&mut parser_input);
-    !matches!(
-        parse_declaration(name, &mut input),
-        Err(ParseError {
-            kind: ParseErrorKind::Basic(BasicParseErrorKind::AtRuleInvalid(ref marker)),
-            ..
-        }) if &**marker == UNKNOWN_PROPERTY
-    )
 }
 
 fn parse_margin_shorthand<'i>(

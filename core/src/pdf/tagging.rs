@@ -207,22 +207,6 @@ pub fn collect_tag_roles(dom: &Dom) -> HashMap<NodeId, TagRole> {
     out
 }
 
-/// The `lang` attribute of the root `<html>` element, if it has a non-empty one.
-pub fn find_document_lang(dom: &Dom) -> Option<String> {
-    for node in dom.children(dom.document()) {
-        if let NodeData::Element { name, attrs, .. } = &dom.node(node).data {
-            if &*name.local == "html" {
-                return attrs
-                    .iter()
-                    .find(|a| &*a.name.local == "lang")
-                    .map(|a| a.value.trim().to_string())
-                    .filter(|lang| !lang.is_empty());
-            }
-        }
-    }
-    None
-}
-
 enum Kid {
     Elem(usize),
     /// A marked-content sequence of a page or, with `stm`, of a Form XObject.

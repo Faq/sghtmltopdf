@@ -90,9 +90,11 @@ cat invoice.html | sghtmltopdf - -o - > invoice.pdf
 | `--zoom <FACTOR>` | 1.0 | 拡大率。`--dpi`の係数に掛かる |
 | `-g`, `--grayscale` | オフ | 塗り・線をグレースケール化(sRGB相対輝度) |
 | `--no-pdf-compression` | オフ | PDFオブジェクトのFlate圧縮を止める(画像データは対象外) |
-| `--tagged` | オフ | タグ付きPDFを出力する。見出し・段落・リスト・表・リンク・代替テキスト付き画像の構造ツリーを書き、ヘッダー・フッター・背景は`Artifact`にする。`<html lang>`は`/Lang`になる。`--streaming`とは併用できない |
+| `--tagged` | オフ | タグ付きPDFを出力する。見出し・段落・リスト・表・リンク・代替テキスト付き画像の構造ツリーを書き、ヘッダー・フッター・背景は`Artifact`にする。`--streaming`とは併用できない |
 
 `/Producer`と`/CreationDate`は常に書かれます。
+
+HTMLの`<html lang>`は、PDFカタログの`/Lang`(文書の言語)になります。`en-GB`のような地域つきのタグもそのまま書かれ、`lang`が空または無ければ`/Lang`は書かれません。ヘッダー/フッターのHTMLは影響せず、本文のHTMLだけが決めます。
 
 > グレースケールの限界
 >

@@ -120,8 +120,8 @@ impl<S: Sink> StreamingPdfWriter<S> {
     /// The version taking an explicit [`PdfOutputOptions`].
     ///
     /// `tag_roles` says which elements become which structure elements of a tagged PDF
-    /// ([`PdfOutputOptions::tagged`]), as found by [`collect_tag_roles`](super::collect_tag_roles). It is unused
-    /// otherwise.
+    /// ([`PdfOutputOptions::tagged`]), as found by
+    /// [`collect_tag_roles`](super::collect_tag_roles). It is unused otherwise.
     pub fn with_options(
         fonts: &FontCollection,
         settings: PageSettings,
@@ -574,14 +574,14 @@ impl<S: Sink> StreamingPdfWriter<S> {
             if let Some(dests_id) = dests_id {
                 catalog.destinations(dests_id);
             }
+            if let Some(language) = self.output.metadata.language.as_deref() {
+                catalog.lang(TextStr(language));
+            }
             if self.output.tagged {
                 // A tagged PDF is marked even when nothing ended up in the tree (an empty page).
                 catalog.mark_info().marked(true);
                 if let Some(root_id) = struct_tree_root {
                     catalog.pair(Name(b"StructTreeRoot"), root_id);
-                }
-                if let Some(lang) = &self.output.metadata.lang {
-                    catalog.lang(TextStr(lang));
                 }
                 if self.output.metadata.title.is_some() {
                     catalog.viewer_preferences().display_doc_title(true);

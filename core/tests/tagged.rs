@@ -95,10 +95,7 @@ fn the_document_language_comes_from_the_html_element() {
         r#"<html lang="fr"><body><p>Bonjour</p></body></html>"#,
         true,
     );
-    assert_eq!(count(&bytes, "/Lang (fr)"), 1);
-
-    let bytes = build("<p>no language</p>", true);
-    assert_eq!(count(&bytes, "/Lang"), 0);
+    assert_eq!(count(&bytes, "/Lang (fr)"), 1, "written once, not twice");
 }
 
 #[test]

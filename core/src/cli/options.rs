@@ -602,8 +602,7 @@ impl ConvertArgs {
                 author: self.author.clone(),
                 subject: self.subject.clone(),
                 keywords: self.keywords.clone(),
-                // Filled from the document's `<html lang>` by the engine.
-                lang: None,
+                language: None,
             },
             compress: !self.no_pdf_compression,
             scale: PdfOutputOptions::scale_from_dpi_and_zoom(self.dpi, self.zoom),

@@ -21,4 +21,4 @@ pub use options::{
 };
 pub use streaming::StreamingPdfWriter;
 pub use svg::SvgFontDb;
-pub use tagging::{collect_tag_roles, find_document_lang, TagRole};
+pub use tagging::{collect_tag_roles, TagRole};

@@ -27,8 +27,8 @@ use crate::fonts::{
     SystemFonts,
 };
 use crate::html::{
-    collect_anchor_targets, find_base_href, find_document_title, Dom, NodeData, NodeId,
-    StreamingParser,
+    collect_anchor_targets, find_base_href, find_document_language, find_document_title, Dom,
+    NodeData, NodeId, StreamingParser,
 };
 use crate::img::{DocumentImageCache, ImageFetcher};
 use crate::layout::{
@@ -39,8 +39,8 @@ use crate::layout::{
     PageSettings, Rect, StreamingPaginator,
 };
 use crate::pdf::{
-    anchor_destination_name, collect_tag_roles, find_document_lang, ImageAssetCache, LinkSettings,
-    PageOverlay, PdfOutputOptions, PreparedImage, StreamingPdfWriter, SvgFontDb,
+    anchor_destination_name, collect_tag_roles, ImageAssetCache, LinkSettings, PageOverlay,
+    PdfOutputOptions, PreparedImage, StreamingPdfWriter, SvgFontDb,
 };
 use crate::sink::Sink;
 use crate::style::{
@@ -1310,11 +1310,15 @@ impl<S: Sink> Engine<S> {
             + body_border.top
             + body_padding.top;
 
-        // With no `--title`, the `<title>` becomes the PDF's `/Title`.
+        // With no `--title`, the `<title>` becomes the PDF's `/Title`. `<html lang>` becomes
+        // the catalog's `/Lang`.
         let mut output = self.options.output.clone();
         output
             .metadata
             .fill_title_from_document(find_document_title(&self.parser.dom()));
+        output
+            .metadata
+            .fill_language_from_document(find_document_language(&self.parser.dom()));
 
         let writer = StreamingPdfWriter::with_options(
             &fonts,
@@ -1681,11 +1685,9 @@ impl<S: Sink> Engine<S> {
         output
             .metadata
             .fill_title_from_document(find_document_title(&dom));
-        if output.tagged {
-            output
-                .metadata
-                .fill_lang_from_document(find_document_lang(&dom));
-        }
+        output
+            .metadata
+            .fill_language_from_document(find_document_language(&dom));
         let tag_roles = if output.tagged {
             collect_tag_roles(&dom)
         } else {

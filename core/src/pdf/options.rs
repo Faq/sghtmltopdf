@@ -16,7 +16,8 @@ pub struct DocumentMetadata {
     pub subject: Option<String>,
     /// `/Keywords`.
     pub keywords: Option<String>,
-    /// The catalog's `/Lang`, from `<html lang>` (resolved by the caller).
+    /// The catalog's `/Lang`. With none given, `<html lang>` goes here (resolved by the
+    /// caller); an explicit value wins and is written as given.
     pub language: Option<String>,
 }
 
@@ -28,16 +29,36 @@ impl DocumentMetadata {
         }
     }
 
-    /// Adopt the `<html lang>` as the document language. It is kept as written (`en-GB`)
-    /// minus surrounding whitespace; an empty value, or one that cannot be a language tag
-    /// (ASCII letters, digits and hyphens only), writes nothing.
+    /// Adopt the `<html lang>` as the document language only when `language` is unset. It is
+    /// kept as written (`en-GB`) minus surrounding whitespace; an empty value writes nothing,
+    /// and one that cannot be a language tag writes nothing with a warning.
     pub fn fill_language_from_document(&mut self, document_language: Option<String>) {
-        self.language = document_language
-            .map(|lang| lang.trim().to_string())
-            .filter(|lang| {
-                !lang.is_empty() && lang.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-            });
+        if self.language.is_none() {
+            self.language = document_language
+                .map(|lang| lang.trim().to_string())
+                .filter(|lang| !lang.is_empty())
+                .filter(|lang| {
+                    let valid = is_language_tag(lang);
+                    if !valid {
+                        eprintln!(
+                            "warning: <html lang=\"{lang}\"> is not a language tag; the PDF has no /Lang"
+                        );
+                    }
+                    valid
+                });
+        }
     }
+}
+
+/// Whether `tag` has the shape of a language tag: `-`-separated subtags of 1–8 ASCII
+/// letters or digits, the first one letters only.
+fn is_language_tag(tag: &str) -> bool {
+    let mut subtags = tag.split('-');
+    let primary = subtags.next().unwrap_or_default();
+    let valid = |subtag: &str| (1..=8).contains(&subtag.len());
+    valid(primary)
+        && primary.chars().all(|c| c.is_ascii_alphabetic())
+        && subtags.all(|subtag| valid(subtag) && subtag.chars().all(|c| c.is_ascii_alphanumeric()))
 }
 
 /// The default factor converting CSS px to PDF pt (at 96dpi, `72 / 96`).
@@ -238,9 +259,30 @@ mod tests {
         assert_eq!(language("   "), None);
         assert_eq!(language("p(l"), None);
         assert_eq!(language("język"), None);
+        assert_eq!(language("-"), None);
+        assert_eq!(language("-en"), None);
+        assert_eq!(language("en-"), None);
+        assert_eq!(language("en--US"), None);
+        assert_eq!(language("123"), None);
+        assert_eq!(language("en-abcdefghi"), None);
+        assert_eq!(language("en_US"), None);
+        assert_eq!(language("zh-Hant-TW").as_deref(), Some("zh-Hant-TW"));
+        assert_eq!(language("es-419").as_deref(), Some("es-419"));
 
         let mut meta = DocumentMetadata::default();
         meta.fill_language_from_document(None);
         assert_eq!(meta.language, None);
+    }
+
+    #[test]
+    fn an_explicit_language_wins_over_the_html_lang() {
+        for document_language in [Some("pl".to_string()), None] {
+            let mut meta = DocumentMetadata {
+                language: Some("ja".into()),
+                ..Default::default()
+            };
+            meta.fill_language_from_document(document_language);
+            assert_eq!(meta.language.as_deref(), Some("ja"));
+        }
     }
 }

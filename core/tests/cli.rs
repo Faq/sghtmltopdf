@@ -683,6 +683,25 @@ fn the_html_lang_becomes_the_catalog_language() {
 }
 
 #[test]
+fn an_html_lang_that_is_not_a_language_tag_is_warned_about() {
+    for args in [&[][..], &["--streaming"][..]] {
+        let html = r#"<html lang="en us"><body><p>x</p></body></html>"#;
+        let stderr = run_capturing_stderr(html, args, "lang-warn-invalid");
+        assert!(
+            stderr.contains("warning:") && stderr.contains("en us"),
+            "got: {stderr}"
+        );
+
+        // An empty `lang` is ordinary HTML, so it stays quiet.
+        let html = r#"<html lang=""><body><p>x</p></body></html>"#;
+        let mut args = args.to_vec();
+        args.push("--quiet");
+        let stderr = run_capturing_stderr(html, &args, "lang-warn-empty");
+        assert!(stderr.is_empty(), "got: {stderr}");
+    }
+}
+
+#[test]
 fn a_header_document_does_not_set_the_language() {
     let dir = std::env::temp_dir().join(format!(
         "sghtmltopdf-e2e-lang-header-{}",

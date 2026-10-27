@@ -419,7 +419,7 @@ pub fn encode_pdf_with_options(
         }
     }
 
-    let outline_id = write_outline(&outline_entries, &mut alloc).map(|(root, chunks)| {
+    let outline_id = write_outline(outline_entries, &mut alloc).map(|(root, chunks)| {
         for (_, chunk) in &chunks {
             pdf.extend(chunk);
         }

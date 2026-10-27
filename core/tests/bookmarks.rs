@@ -240,6 +240,25 @@ fn bookmark_level_builds_a_nested_outline_in_document_order() {
 }
 
 #[test]
+fn a_positioned_or_floated_heading_keeps_its_place_in_the_outline() {
+    // Batch mode lays an absolutely positioned box out after the rest of the page. The
+    // outline still follows the document, so 1.4 stays under Chapter 1.
+    let html = "<style>h1 { bookmark-level: 1; } h2 { bookmark-level: 2; } \
+                .fl { float: right; } .abs { position: absolute; top: 0; right: 0; }</style>\
+                <h1>Chapter 1</h1><h2>1.1</h2><h2 class=\"fl\">1.2</h2><h2>1.3</h2>\
+                <h2 class=\"abs\">1.4</h2><h2>1.5</h2><h1>Chapter 2</h1>";
+    for mode in [Mode::Batch, Mode::Streaming] {
+        let items = outline(html, mode).expect("an outline");
+        assert_eq!(
+            titles(&items),
+            ["Chapter 1", "1.1", "1.2", "1.3", "1.4", "1.5", "Chapter 2"],
+            "{mode:?}"
+        );
+        assert_eq!(depths(&items), [0, 1, 1, 1, 1, 1, 0], "{mode:?}");
+    }
+}
+
+#[test]
 fn a_skipped_level_nests_under_the_nearest_shallower_entry() {
     let html = format!(
         "{HEADINGS}<h3>Orphan</h3><h1>One</h1><h3>Deep</h3><h2>Back up</h2><h3>Under it</h3>"

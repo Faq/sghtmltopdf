@@ -24,6 +24,9 @@ pub struct Bookmark {
     pub title: String,
     /// Whether the entry is shown expanded (`bookmark-state: open`).
     pub open: bool,
+    /// The element's place among the bookmarked elements in document order. The pages list
+    /// them in box order, where a positioned box can come last, so the outline sorts by this.
+    pub order: usize,
 }
 
 /// A bookmark placed on a page.
@@ -37,7 +40,7 @@ pub(super) struct OutlineEntry {
 }
 
 /// Walk the boxes on a page and collect where each bookmarked element (a `NodeId` present in
-/// `bookmarks`) appears, in document order (the PDF coordinates of the top left of its
+/// `bookmarks`) appears, in box order (the PDF coordinates of the top left of its
 /// border box, in px). An element split across pages appears on each of them; the caller
 /// keeps the first.
 pub(super) fn collect_bookmark_positions(
@@ -102,19 +105,21 @@ pub(super) fn collect_bookmark_positions(
     }
 }
 
-/// Write the outline objects for `entries` (in document order) and return the outline root
-/// together with every object, ready to be written. `None` when there are no entries.
+/// Write the outline objects for `entries` (sorted into document order first) and return the
+/// outline root together with every object, ready to be written. `None` when there are no
+/// entries.
 ///
 /// An entry nests under the nearest preceding entry with a smaller level, so a level that
 /// skips ahead (a level 3 right after a level 1) simply nests one step down, and one that
 /// returns to a shallower level than the entry before it closes the deeper ones.
 pub(super) fn write_outline(
-    entries: &[OutlineEntry],
+    mut entries: Vec<OutlineEntry>,
     alloc: &mut RefAllocator,
 ) -> Option<(Ref, Vec<(Ref, Chunk)>)> {
     if entries.is_empty() {
         return None;
     }
+    entries.sort_by_key(|entry| entry.bookmark.order);
     let root = alloc.next();
     let ids: Vec<Ref> = entries.iter().map(|_| alloc.next()).collect();
 

@@ -78,7 +78,7 @@ pub struct StreamingPdfWriter<S: Sink> {
     /// The positions of the anchors found on the pages written so far
     /// (name, page Ref, x, y). Written out as the `/Dests` dictionary in `finish`.
     destinations: Vec<(String, Ref, f32, f32)>,
-    /// The bookmarked elements found on the pages written so far, in document order.
+    /// The bookmarked elements found on the pages written so far, in box order.
     /// Written out as the `/Outlines` tree in `finish`.
     outline_entries: Vec<OutlineEntry>,
     /// Metadata, compression, scale and grayscale.
@@ -542,7 +542,7 @@ impl<S: Sink> StreamingPdfWriter<S> {
         // The outline is written here for the same reason: it needs every entry.
         let entries = std::mem::take(&mut self.outline_entries);
         let mut alloc = std::mem::take(&mut self.alloc);
-        let outline = write_outline(&entries, &mut alloc);
+        let outline = write_outline(entries, &mut alloc);
         self.alloc = alloc;
         let outline_id = match outline {
             Some((root, chunks)) => {

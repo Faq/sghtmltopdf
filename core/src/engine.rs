@@ -643,11 +643,12 @@ fn collect_headings(
 ///
 /// `display: none` subtrees are skipped, as are `<html>` and `<body>`, which have no box of
 /// their own in streaming mode. Streaming calls this per top-level element, before its DOM is
-/// released.
+/// released, so `next_order` (each entry's [`Bookmark::order`]) carries on across the calls.
 fn collect_bookmarks(
     dom: &Dom,
     styles: &HashMap<NodeId, Rc<ComputedStyle>>,
     root: NodeId,
+    next_order: &mut usize,
 ) -> HashMap<NodeId, Bookmark> {
     /// The text of `node` and its descendants, leaving out what `display: none` hides. A
     /// `<br>` and the edges of a block-level child are a space, as the lines they break are.
@@ -687,6 +688,7 @@ fn collect_bookmarks(
         dom: &Dom,
         styles: &HashMap<NodeId, Rc<ComputedStyle>>,
         node: NodeId,
+        next_order: &mut usize,
         out: &mut HashMap<NodeId, Bookmark>,
     ) {
         if let NodeData::Element { name, attrs, .. } = &dom.node(node).data {
@@ -732,18 +734,20 @@ fn collect_bookmarks(
                             level,
                             title,
                             open: style.bookmark_state == BookmarkState::Open,
+                            order: *next_order,
                         },
                     );
+                    *next_order += 1;
                 }
             }
         }
         for child in dom.children(node) {
-            visit(dom, styles, child, out);
+            visit(dom, styles, child, next_order, out);
         }
     }
 
     let mut bookmarks = HashMap::new();
-    visit(dom, styles, root, &mut bookmarks);
+    visit(dom, styles, root, next_order, &mut bookmarks);
     bookmarks
 }
 
@@ -1075,6 +1079,9 @@ struct StreamingState<S: Sink> {
     /// per top-level element, so the characters already warned about are carried along to
     /// prevent duplicates.
     warned_uncovered_chars: HashSet<char>,
+    /// The number of bookmarked elements so far, so each top-level element's bookmarks
+    /// continue the document order.
+    bookmark_count: usize,
     /// Whether a processed top-level element may be freed along with its subtree.
     ///
     /// In a document using selectors that need the preceding sibling, such as `+`/`~` or
@@ -1468,6 +1475,7 @@ impl<S: Sink> Engine<S> {
             overlay_cache: OverlayCache::default(),
             warned_font_families: Vec::new(),
             warned_uncovered_chars: HashSet::new(),
+            bookmark_count: 0,
             release_whole_subtree,
             paginator: StreamingPaginator::new(page_settings.content_height()),
             writer,
@@ -1519,9 +1527,12 @@ impl<S: Sink> Engine<S> {
                 &mut state.warned_uncovered_chars,
             );
             // Read here, while the subtree's text and attributes are still in the DOM.
-            state
-                .writer
-                .add_bookmarks(collect_bookmarks(&dom, &sub_styles, node));
+            state.writer.add_bookmarks(collect_bookmarks(
+                &dom,
+                &sub_styles,
+                node,
+                &mut state.bookmark_count,
+            ));
             let mut item_box = build_box_for_element(&dom, &sub_styles, node);
             if let (Some(item_box), true) = (&mut item_box, options_content.load_images) {
                 resolve_images(item_box, &dom, &sub_styles, &state.image_cache);
@@ -1901,7 +1912,7 @@ impl<S: Sink> Engine<S> {
 
         // The cover and the TOC are separate documents whose `NodeId`s would collide with the
         // body's, so the body's bookmarks are registered only after them.
-        writer.add_bookmarks(collect_bookmarks(&dom, &styles, dom.document()));
+        writer.add_bookmarks(collect_bookmarks(&dom, &styles, dom.document(), &mut 0));
 
         let mut overlay_cache = OverlayCache::default();
         for page in pages.iter() {

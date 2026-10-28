@@ -374,7 +374,7 @@ fn consume_and_find_var(input: &mut Parser<'_, '_>) -> bool {
 
 /// Remove a trailing `!important` from `raw`, returning the remaining text and whether it
 /// was present.
-fn split_important(raw: &str) -> (&str, bool) {
+pub(super) fn split_important(raw: &str) -> (&str, bool) {
     let raw = raw.trim_end();
     if raw.len() >= "important".len() {
         let (head, tail) = raw.split_at(raw.len() - "important".len());
@@ -704,6 +704,12 @@ fn parse_value_text(name: &str, value: &str) -> Option<Vec<PropertyDeclaration>>
     let mut parser = Parser::new(&mut input);
     let declarations = parse_declaration(&CowRcStr::from(name), &mut parser).ok()?;
     parser.is_exhausted().then_some(declarations)
+}
+
+/// Whether `name` is an ordinary property we know, whatever its value (a property that
+/// takes a CSS-wide keyword is exactly one that has a longhand probe).
+pub(super) fn is_known_property(name: &str) -> bool {
+    !longhand_probe(name).is_empty()
 }
 
 /// Declarations covering every longhand `name` expands to, used to reset an ordinary

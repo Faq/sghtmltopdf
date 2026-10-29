@@ -5,6 +5,7 @@ mod document;
 mod font;
 mod img;
 mod options;
+mod outline;
 mod streaming;
 mod svg;
 mod tagging;
@@ -19,6 +20,7 @@ pub use options::{
     current_datetime, current_pdf_date, pdf_date_from_unix, producer_string, DocumentMetadata,
     PdfOutputOptions, DEFAULT_SCALE,
 };
+pub use outline::Bookmark;
 pub use streaming::StreamingPdfWriter;
 pub use svg::SvgFontDb;
 pub use tagging::{collect_tag_roles, TagRole};

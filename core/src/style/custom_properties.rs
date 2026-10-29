@@ -746,6 +746,8 @@ fn longhand_probe(name: &str) -> Vec<PropertyDeclaration> {
         "over",
         "clip",
         "2",
+        "\"\"",
+        "closed",
     ];
     PROBES
         .iter()
@@ -888,6 +890,9 @@ mod tests {
             ("text-overflow", 1),
             ("orphans", 1),
             ("widows", 1),
+            ("bookmark-level", 1),
+            ("bookmark-label", 1),
+            ("bookmark-state", 1),
         ] {
             assert_eq!(longhand_probe(name).len(), longhands, "{name}");
         }

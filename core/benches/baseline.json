@@ -261,7 +261,7 @@
       "alloc_bytes": 92964553,
       "peak_live_bytes": 25987335,
       "pages": 13,
-      "pdf_bytes": 108031
+      "pdf_bytes": 108107
     },
     {
       "name": "engine/streaming/images",
